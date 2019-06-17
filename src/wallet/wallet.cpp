@@ -2314,7 +2314,7 @@ CAmount CWallet::GetAvailableBalance(const CCoinControl* coinControl) const
     return balance;
 }
 // SYSCOIN
-void CWallet::AvailableCoins(interfaces::Chain::Lock& locked_chain, std::vector<COutput> &vCoins, bool fOnlySafe, const CCoinControl *coinControl, const CAmount &nMinimumAmount, const CAmount &nMaximumAmount, const CAmount &nMinimumSumAmount, const uint64_t nMaximumCount, const int nMinDepth, const int nMaxDepth, const bool bIncludeLocked) const
+void CWallet::AvailableCoins(interfaces::Chain::Lock& locked_chain, std::vector<COutput> &vCoins, bool fOnlySafe, const CCoinControl *coinControl, const CAmount &nMinimumAmount, const CAmount &nMaximumAmount, const CAmount &nMinimumSumAmount, const uint64_t nMaximumCount, const int nMinDepth, const int nMaxDepth, const bool bIncludeLocked, const bool bSkipAssetOutputs) const
 {
     AssertLockHeld(cs_wallet);
 
@@ -2407,7 +2407,7 @@ void CWallet::AvailableCoins(interfaces::Chain::Lock& locked_chain, std::vector<
             int witnessversion = 0;
             std::vector<unsigned char> witnessprogram;
             // if asset index and coincontrol is not enabled or not selecting this output and this is a witness program, check to ensure the address doesn't belong to an asset
-            if (fAssetIndex && passetdb != nullptr && passetallocationdb != nullptr && (!coinControl || !coinControl->HasSelected() || !coinControl->IsSelected(COutPoint(entry.first, i))) && wtx.tx->vout[i].scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)){
+            if (bSkipAssetOutputs && fAssetIndex && passetdb != nullptr && passetallocationdb != nullptr && (!coinControl || !coinControl->HasSelected() || !coinControl->IsSelected(COutPoint(entry.first, i))) && wtx.tx->vout[i].scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)){
                 CWitnessAddress witnessAddress(witnessversion, witnessprogram);
                 if(passetdb->ExistsAssetsByAddress(witnessAddress) || passetallocationdb->ExistsAssetsByAddress(witnessAddress)){
                     WalletLogPrintf("Ignoring fund addr connected to asset(s): %s\n", witnessAddress.ToString());
@@ -2796,7 +2796,7 @@ OutputType CWallet::TransactionChangeType(OutputType change_type, const std::vec
 }
 
 bool CWallet::CreateTransaction(interfaces::Chain::Lock& locked_chain, const std::vector<CRecipient>& vecSend, CTransactionRef& tx, CReserveKey& reservekey, CAmount& nFeeRet,
-                         int& nChangePosInOut, std::string& strFailReason, const CCoinControl& coin_control, bool sign)
+                         int& nChangePosInOut, std::string& strFailReason, const CCoinControl& coin_control, bool sign, bool bSkipAssetOutputs)
 {
     CAmount nValue = 0;
     int nChangePosRequest = nChangePosInOut;
@@ -2831,8 +2831,9 @@ bool CWallet::CreateTransaction(interfaces::Chain::Lock& locked_chain, const std
         auto locked_chain = chain().lock();
         LOCK(cs_wallet);
         {
+            // SYSCOIN
             std::vector<COutput> vAvailableCoins;
-            AvailableCoins(*locked_chain, vAvailableCoins, true, &coin_control, 1, MAX_MONEY, MAX_MONEY, 0, coin_control.m_min_depth);
+            AvailableCoins(*locked_chain, vAvailableCoins, true, &coin_control, 0, MAX_MONEY, MAX_MONEY, 0, coin_control.m_min_depth, bSkipAssetOutputs);
             CoinSelectionParams coin_selection_params; // Parameters for coin selection, init with dummy
 
             // Create change script that will be used if we need change

@@ -306,8 +306,26 @@ static UniValue setlabel(const JSONRPCRequest& request)
     return NullUniValue;
 }
 
-
-static CTransactionRef SendMoney(interfaces::Chain::Lock& locked_chain, CWallet * const pwallet, const CTxDestination &address, CAmount nValue, bool fSubtractFeeFromAmount, const CCoinControl& coin_control, mapValue_t mapValue)
+// SYSCOIN
+void SplitOutputsIntoDust(CWallet * const pwallet, std::vector<CRecipient> &vecSend, const CRecipient &recipientIn, const int &nDustOutputs, const CAmount& nMinDustAmount){
+    const CAmount &nMinFee = GetMinimumFee(*pwallet, fMinFeeDustSize, coin_control, &fee_calc);
+    if(nMinDustAmount < nMinFee){
+         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, strprintf("Error: Min dust amount must be greator to or equal to the minimum dust fee of %s", FormatMoney(nMinFee)));
+    }
+    CRecipient recipient = recipientIn;
+    CAmount nTotal = 0;
+    for(unsigned int i=0;i<nDustOutputs;i++){
+        CRecipient recipientDust = {recipient.scriptPubKey, nMinDustAmount, false};
+        vecSend.push_back(recipientDust);
+        nTotal += recipientDust.nAmount;
+    }
+    if(nTotal > recipient.nAmount){
+        throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, strprintf("Error: Recipient does not cover the dust fee amount of %s", FormatMoney(nTotal)));
+    }
+    recipient.nAmount -= nTotal;
+    vecSend.push_back(recipient);
+}
+static CTransactionRef SendMoney(interfaces::Chain::Lock& locked_chain, CWallet * const pwallet, const CTxDestination &address, CAmount nValue, bool fSubtractFeeFromAmount, const CCoinControl& coin_control, mapValue_t mapValue, bool bSkipAssetOutputs, int nDustOutputs, CAmount nMinDustAmount)
 {
     CAmount curBalance = pwallet->GetBalance().m_mine_trusted;
 
@@ -332,9 +350,14 @@ static CTransactionRef SendMoney(interfaces::Chain::Lock& locked_chain, CWallet 
     std::vector<CRecipient> vecSend;
     int nChangePosRet = -1;
     CRecipient recipient = {scriptPubKey, nValue, fSubtractFeeFromAmount};
-    vecSend.push_back(recipient);
+    // SYSCOIN
+    if(nDustOutputs > 0)
+        SplitOutputsIntoDust(pwallet, vecSend, recipient, nDustOutputs, nMinDustAmount);
+    else    
+        vecSend.push_back(recipient);
     CTransactionRef tx;
-    if (!pwallet->CreateTransaction(locked_chain, vecSend, tx, reservekey, nFeeRequired, nChangePosRet, strError, coin_control)) {
+    // SYSCOIN
+    if (!pwallet->CreateTransaction(locked_chain, vecSend, tx, reservekey, nFeeRequired, nChangePosRet, strError, coin_control, true, bSkipAssetOutputs)) {
         if (!fSubtractFeeFromAmount && nValue + nFeeRequired > curBalance)
             strError = strprintf("Error: This transaction requires a transaction fee of at least %s", FormatMoney(nFeeRequired));
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
@@ -355,8 +378,8 @@ static UniValue sendtoaddress(const JSONRPCRequest& request)
     if (!EnsureWalletIsAvailable(pwallet, request.fHelp)) {
         return NullUniValue;
     }
-
-    if (request.fHelp || request.params.size() < 2 || request.params.size() > 8)
+    // SYSCOIN
+    if (request.fHelp || request.params.size() < 2 || request.params.size() > 11)
         throw std::runtime_error(
             RPCHelpMan{"sendtoaddress",
                 // SYSCOIN
@@ -378,6 +401,10 @@ static UniValue sendtoaddress(const JSONRPCRequest& request)
             "       \"UNSET\"\n"
             "       \"ECONOMICAL\"\n"
             "       \"CONSERVATIVE\""},
+                    // SYSCOIN
+                    {"skipassetoutputs", RPCArg::Type::BOOL, /* default */ "false", "Skip outputs related to addresses with Assets."},
+                    {"dustoutputs", RPCArg::Type::NUM, RPCArg::Optional::OMITTED_NAMED_ARG, "Number of dust outputs to create per recipient address."},
+                    {"dustamount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED_NAMED_ARG, "Override the default dust amount of " + fMinFeeDustSize + " bytes of fees."},
                 },
                 RPCResult{
             "\"txid\"                  (string) The transaction id.\n"
@@ -431,13 +458,25 @@ static UniValue sendtoaddress(const JSONRPCRequest& request)
     if (!request.params[7].isNull()) {
         if (!FeeModeFromString(request.params[7].get_str(), coin_control.m_fee_mode)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid estimate_mode parameter");
-        }
+        }   
     }
-
-
+    // SYSCOIN
+    bool bSkipAssetOutputs = false;
+    if (!request.params[8].isNull()) {
+        bSkipAssetOutputs = request.params[8].get_bool();
+    }
+    int nDustOutputs = fTargetUpdatesPerBlock;
+    if (!request.params[9].isNull()) {
+        nDustOutputs = request.params[9].get_int();
+    }
+    FeeCalculation fee_calc;
+    CAmount nDustAmount = GetMinimumFee(*pwallet, fMinFeeDustSize, coin_control, &fee_calc);
+    if (!request.params[10].isNull()) {
+        nDustAmount = AmountFromValue(request.params[10]);
+    }
     EnsureWalletIsUnlocked(pwallet);
 
-    CTransactionRef tx = SendMoney(*locked_chain, pwallet, dest, nAmount, fSubtractFeeFromAmount, coin_control, std::move(mapValue));
+    CTransactionRef tx = SendMoney(*locked_chain, pwallet, dest, nAmount, fSubtractFeeFromAmount, coin_control, std::move(mapValue), bSkipAssetOutputs, nDustOutputs, nDustAmount);
     return tx->GetHash().GetHex();
 }
 
@@ -838,6 +877,10 @@ static UniValue sendmany(const JSONRPCRequest& request)
             "       \"UNSET\"\n"
             "       \"ECONOMICAL\"\n"
             "       \"CONSERVATIVE\""},
+                    // SYSCOIN
+                    {"skipassetoutputs", RPCArg::Type::BOOL, /* default */ "false", "Skip outputs related to address with assets."},
+                    {"dustoutputs", RPCArg::Type::NUM, RPCArg::Optional::OMITTED_NAMED_ARG, "Number of dust outputs to create per recipient address."},
+                    {"dustamount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED_NAMED_ARG, "Override the default dust amount of " + fMinFeeDustSize + " bytes of fees."},
                 },
                  RPCResult{
             "\"txid\"                   (string) The transaction id for the send. Only 1 transaction is created regardless of \n"
@@ -898,6 +941,20 @@ static UniValue sendmany(const JSONRPCRequest& request)
         }
     }
 
+    // SYSCOIN
+    bool bSkipAssetOutputs = false;
+    if (!request.params[8].isNull()) {
+        bSkipAssetOutputs = request.params[8].get_bool();
+    }
+    int nDustOutputs = fTargetUpdatesPerBlock;
+    if (!request.params[9].isNull()) {
+        nDustOutputs = request.params[9].get_int();
+    }
+    FeeCalculation fee_calc;
+    CAmount nDustAmount = GetMinimumFee(*pwallet, fMinFeeDustSize, coin_control, &fee_calc);
+    if (!request.params[10].isNull()) {
+        nDustAmount = AmountFromValue(request.params[10]);
+    }
     std::set<CTxDestination> destinations;
     std::vector<CRecipient> vecSend;
 
@@ -926,7 +983,11 @@ static UniValue sendmany(const JSONRPCRequest& request)
         }
 
         CRecipient recipient = {scriptPubKey, nAmount, fSubtractFeeFromAmount};
-        vecSend.push_back(recipient);
+        // SYSCOIN
+        if(nDustOutputs > 0)
+            SplitOutputsIntoDust(pwallet, vecSend, recipient, nDustOutputs, nDustAmount);
+        else    
+            vecSend.push_back(recipient);
     }
 
     EnsureWalletIsUnlocked(pwallet);
@@ -940,7 +1001,8 @@ static UniValue sendmany(const JSONRPCRequest& request)
     int nChangePosRet = -1;
     std::string strFailReason;
     CTransactionRef tx;
-    bool fCreated = pwallet->CreateTransaction(*locked_chain, vecSend, tx, keyChange, nFeeRequired, nChangePosRet, strFailReason, coin_control);
+    // SYSCOIN
+    bool fCreated = pwallet->CreateTransaction(*locked_chain, vecSend, tx, keyChange, nFeeRequired, nChangePosRet, strFailReason, coin_control, true, bSkipAssetOutputs);
     if (!fCreated)
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, strFailReason);
     CValidationState state;
@@ -4405,8 +4467,8 @@ static const CRPCCommand commands[] =
     { "wallet",             "lockunspent",                      &lockunspent,                   {"unlock","transactions"} },
     { "wallet",             "removeprunedfunds",                &removeprunedfunds,             {"txid"} },
     { "wallet",             "rescanblockchain",                 &rescanblockchain,              {"start_height", "stop_height"} },
-    { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode"} },
-    { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode"} },
+    { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode","skipassetoutputs","dustoutputs","dustamount"} },
+    { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode","skipassetoutputs","dustoutputs","dustamount"} },
     { "wallet",             "sethdseed",                        &sethdseed,                     {"newkeypool","seed"} },
     { "wallet",             "setlabel",                         &setlabel,                      {"address","label"} },
     { "wallet",             "settxfee",                         &settxfee,                      {"amount"} },

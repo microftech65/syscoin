@@ -6,8 +6,6 @@
 #define SYSCOIN_SERVICES_RPC_ASSETRPC_H
 #include <string>
 class CUniValue;
-class COutPoint;
-unsigned int addressunspent(const std::string& strAddressFrom, COutPoint& outpoint);
 UniValue ValueFromAssetAmount(const CAmount& amount, int precision);
 CAmount AssetAmountFromValue(UniValue& value, int precision);
 /** Upper bound for mantissa.

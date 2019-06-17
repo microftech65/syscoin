@@ -15,7 +15,9 @@ class JSONRPCRequest;
 class UniValue;
 struct PartiallySignedTransaction;
 class CTransaction;
-
+// SYSCOIN
+class CRecipient;
+class CAmount;
 namespace interfaces {
 class Chain;
 class Handler;
@@ -23,6 +25,7 @@ class Handler;
 
 void RegisterWalletRPCCommands(interfaces::Chain& chain, std::vector<std::unique_ptr<interfaces::Handler>>& handlers);
 // SYSCOIN
+void SplitOutputsIntoDust(CWallet * const pwallet, std::vector<CRecipient> &vecSend, const CRecipient &recipient, const int &nDustOutputs, const CAmount& nMinDustAmount);
 void RegisterAssetWalletRPCCommands(interfaces::Chain& chain, std::vector<std::unique_ptr<interfaces::Handler>>& handlers);
 void RegisterGovernanceWalletRPCCommands(interfaces::Chain& chain, std::vector<std::unique_ptr<interfaces::Handler>>& handlers);
 /**

@@ -76,49 +76,6 @@ UniValue convertaddress(const JSONRPCRequest& request)
     
     return ret;
 }
-unsigned int addressunspent(const string& strAddressFrom, COutPoint& outpoint)
-{
-    UniValue paramsUTXO(UniValue::VARR);
-    UniValue utxoParams(UniValue::VARR);
-    utxoParams.push_back("addr(" + strAddressFrom + ")");
-    paramsUTXO.push_back("start");
-    paramsUTXO.push_back(utxoParams);
-    JSONRPCRequest request;
-    request.params = paramsUTXO;
-    UniValue resUTXOs = scantxoutset(request);
-    UniValue utxoArray(UniValue::VARR);
-    if (resUTXOs.isObject()) {
-        const UniValue& resUtxoUnspents = find_value(resUTXOs.get_obj(), "unspents");
-        if (!resUtxoUnspents.isArray())
-            throw runtime_error("SYSCOIN_ASSET_RPC_ERROR: ERRCODE: 5501 - " + _("No unspent outputs found in addresses provided"));
-        utxoArray = resUtxoUnspents.get_array();
-    }   
-    else
-        throw runtime_error("SYSCOIN_ASSET_RPC_ERROR: ERRCODE: 5501 - " + _("No unspent outputs found in addresses provided"));
-        
-    unsigned int count = 0;
-    {
-        LOCK(mempool.cs);
-        for (unsigned int i = 0; i < utxoArray.size(); i++)
-        {
-            const UniValue& utxoObj = utxoArray[i].get_obj();
-            const uint256& txid = uint256S(find_value(utxoObj, "txid").get_str());
-            const int& nOut = find_value(utxoObj, "vout").get_int();
-
-            const COutPoint &outPointToCheck = COutPoint(txid, nOut);
-            bool locked = false;
-            // spending as non allocation send while using a locked outpoint should be invalid
-            if (plockedoutpointsdb->ReadOutpoint(outPointToCheck, locked) && locked)
-                continue;
-            if (mempool.mapNextTx.find(outPointToCheck) != mempool.mapNextTx.end())
-                continue;
-            if (outpoint.IsNull())
-                outpoint = outPointToCheck;
-            count++;
-        }
-    }
-    return count;
-}
 UniValue ValueFromAssetAmount(const CAmount& amount,int precision)
 {
     if (precision < 0 || precision > 8)
@@ -1189,6 +1146,7 @@ UniValue syscoinstartgeth(const JSONRPCRequest& request) {
     StopRelayerNode(relayerPID);
     StopGethNode(gethPID);
     int wsport = gArgs.GetArg("-gethwebsocketport", 8646);
+    int rpcport = gArgs.GetArg("-rpcport", BaseParams().RPCPort());
     bool bGethTestnet = gArgs.GetBoolArg("-gethtestnet", false);
     if(!StartGethNode(exePath, gethPID, bGethTestnet, wsport))
         throw runtime_error("SYSCOIN_ASSET_RPC_ERROR: ERRCODE: 2512 - " + _("Could not start Geth"));

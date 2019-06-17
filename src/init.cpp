@@ -496,6 +496,9 @@ void SetupServerArgs()
     gArgs.AddArg("-sporkkey=<key>", strprintf("Private key for use with sporks"), false, OptionsCategory::OPTIONS);
     gArgs.AddArg("-unittest", strprintf("Set by unit test suite. Leave false"), false, OptionsCategory::OPTIONS);
     gArgs.AddArg("-concurrentprocessing", strprintf("Enable patallel signature validation of ZDAG transactions. Default is true."), false, OptionsCategory::OPTIONS);
+    gArgs.AddArg("-targetupdatesperblock", strprintf("For Assets how many transactions we want to target per block, based on dust output creation on addresses since each transaction takes one dust output."), false, OptionsCategory::OPTIONS);
+    gArgs.AddArg("-concurrentprocessing", strprintf("Enable patallel signature validation of ZDAG transactions. Default is true."), false, OptionsCategory::OPTIONS);
+    gArgs.AddArg("-concurrentprocessing", strprintf("Enable patallel signature validation of ZDAG transactions. Default is true."), false, OptionsCategory::OPTIONS);
     
     gArgs.AddArg("-blockfilterindex=<type>",
                  strprintf("Maintain an index of compact filters by block (default: %s, values: %s).", DEFAULT_BLOCKFILTERINDEX, ListBlockFilterTypes()) +
